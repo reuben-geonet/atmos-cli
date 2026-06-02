@@ -28,3 +28,11 @@ atmosctl autostart status
 atmosctl autostart enable
 atmosctl autostart disable
 ```
+
+Use `--json` before the command for machine-readable output:
+
+```sh
+atmosctl --json version
+atmosctl --json vpn status
+atmosctl --json autostart status
+```

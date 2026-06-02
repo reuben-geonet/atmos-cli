@@ -16,14 +16,21 @@ import (
 const (
 	version = "0.1.0"
 
+	schemaVersion = 1
+
 	defaultBackendAddr = "127.0.0.1:6668"
 
+	atmosInterfaceName     = "atmos"
 	atmosAutostartFilename = "AtmosAgent.desktop"
 	atmosUserService       = "atmos-agent.service"
 	atmosUserServiceUnit   = "/usr/lib/systemd/user/atmos-agent.service"
 
 	subjectStart = "tunnel.Start"
 	subjectStop  = "tunnel.Stop"
+
+	reasonInterfaceMissing = "interface_missing"
+	reasonInterfaceDown    = "interface_down"
+	reasonNoAtmosAddress   = "no_atmos_address"
 )
 
 type message struct {
@@ -34,9 +41,44 @@ type message struct {
 	PayloadIsStream bool            `json:"payloadIsStream"`
 }
 
+type versionOutput struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	Version       string `json:"version"`
+}
+
+type commandResult struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	OK            bool   `json:"ok"`
+	Command       string `json:"command"`
+}
+
+type vpnStatus struct {
+	SchemaVersion int      `json:"schemaVersion"`
+	State         string   `json:"state"`
+	Interface     string   `json:"interface"`
+	Addresses     []string `json:"addresses"`
+	Reason        string   `json:"reason,omitempty"`
+}
+
+type autostartStatus struct {
+	SchemaVersion  int    `json:"schemaVersion"`
+	Enabled        bool   `json:"enabled"`
+	OverrideHidden bool   `json:"overrideHidden"`
+	ServiceEnabled bool   `json:"serviceEnabled"`
+	OverridePath   string `json:"overridePath"`
+	Service        string `json:"service"`
+}
+
+type vpnCommand struct {
+	subject     string
+	canonical   string
+	sendsPubsub bool
+}
+
 func main() {
 	addr := flag.String("addr", defaultBackendAddr, "Atmos backend pubsub address")
 	timeout := flag.Duration("timeout", 2*time.Second, "TCP connect/write timeout")
+	jsonOutput := flag.Bool("json", false, "print machine-readable JSON")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
@@ -51,6 +93,13 @@ func main() {
 			usage()
 			os.Exit(2)
 		}
+		if *jsonOutput {
+			err = printJSON(versionOutput{
+				SchemaVersion: schemaVersion,
+				Version:       version,
+			})
+			break
+		}
 		fmt.Printf("atmosctl %s\n", version)
 		return
 	case "vpn":
@@ -58,13 +107,13 @@ func main() {
 			usage()
 			os.Exit(2)
 		}
-		err = handleVPN(flag.Arg(1), *addr, *timeout)
+		err = handleVPN(flag.Arg(1), *addr, *timeout, *jsonOutput)
 	case "autostart":
 		if flag.NArg() != 2 {
 			usage()
 			os.Exit(2)
 		}
-		err = handleAutostart(flag.Arg(1))
+		err = handleAutostart(flag.Arg(1), *jsonOutput)
 	default:
 		usage()
 		os.Exit(2)
@@ -77,60 +126,96 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "usage: %s [--addr %s] [--timeout 2s] version | vpn status|pause|resume | autostart status|enable|disable\n", os.Args[0], defaultBackendAddr)
+	fmt.Fprintf(os.Stderr, "usage: %s [--addr %s] [--timeout 2s] [--json] version | vpn status|pause|resume | autostart status|enable|disable\n", os.Args[0], defaultBackendAddr)
 }
 
-func handleVPN(command, addr string, timeout time.Duration) error {
-	subject, sendsPubsub, err := vpnCommandSubject(command)
+func handleVPN(command, addr string, timeout time.Duration, jsonOutput bool) error {
+	info, err := vpnCommandInfo(command)
 	if err != nil {
 		return err
 	}
-	if !sendsPubsub {
-		return printStatus()
+	if !info.sendsPubsub {
+		return printVPNStatus(jsonOutput)
 	}
-	return sendSubject(addr, subject, timeout)
+	if err := sendSubject(addr, info.subject, timeout); err != nil {
+		return err
+	}
+	return printCommandResult(jsonOutput, info.canonical, "")
 }
 
 func vpnCommandSubject(command string) (string, bool, error) {
+	info, err := vpnCommandInfo(command)
+	return info.subject, info.sendsPubsub, err
+}
+
+func vpnCommandInfo(command string) (vpnCommand, error) {
 	switch command {
 	case "status":
-		return "", false, nil
+		return vpnCommand{canonical: "vpn.status"}, nil
 	case "pause", "stop":
-		return subjectStop, true, nil
+		return vpnCommand{
+			subject:     subjectStop,
+			canonical:   "vpn.pause",
+			sendsPubsub: true,
+		}, nil
 	case "resume", "start":
-		return subjectStart, true, nil
+		return vpnCommand{
+			subject:     subjectStart,
+			canonical:   "vpn.resume",
+			sendsPubsub: true,
+		}, nil
 	default:
-		return "", false, fmt.Errorf("unknown vpn command %q", command)
+		return vpnCommand{}, fmt.Errorf("unknown vpn command %q", command)
 	}
 }
 
-func printStatus() error {
-	state, detail, err := atmosInterfaceStatus()
+func printVPNStatus(jsonOutput bool) error {
+	status, err := atmosInterfaceStatus()
 	if err != nil {
 		return err
 	}
 
-	if detail == "" {
-		fmt.Println(state)
-		return nil
+	if jsonOutput {
+		return printJSON(status)
 	}
 
-	fmt.Printf("%s\t%s\n", state, detail)
+	fmt.Println(formatVPNStatusText(status))
 	return nil
 }
 
-func handleAutostart(command string) error {
+func formatVPNStatusText(status vpnStatus) string {
+	detail := vpnStatusDetail(status)
+	if detail == "" {
+		return status.State
+	}
+
+	return fmt.Sprintf("%s\t%s", status.State, detail)
+}
+
+func vpnStatusDetail(status vpnStatus) string {
+	switch status.Reason {
+	case reasonInterfaceMissing:
+		return "interface missing"
+	case reasonInterfaceDown:
+		return "interface down"
+	}
+	if len(status.Addresses) > 0 {
+		return strings.Join(status.Addresses, ",")
+	}
+	return ""
+}
+
+func handleAutostart(command string, jsonOutput bool) error {
 	switch command {
 	case "status":
-		enabled, detail, err := quietAutostartStatus()
+		status, err := quietAutostartStatus()
 		if err != nil {
 			return err
 		}
-		if enabled {
-			fmt.Println("enabled\t" + detail)
-		} else {
-			fmt.Println("disabled\t" + detail)
+		if jsonOutput {
+			return printJSON(status)
 		}
+		fmt.Println(formatAutostartStatusText(status))
 		return nil
 	case "enable":
 		if err := writeQuietAutostartOverride(); err != nil {
@@ -139,8 +224,7 @@ func handleAutostart(command string) error {
 		if err := runSystemctlUser("enable", atmosUserService); err != nil {
 			return fmt.Errorf("autostart partially configured: wrote hidden desktop override at %s, but enabling %s failed: %w", quietAutostartPath(), atmosUserService, err)
 		}
-		fmt.Println("enabled")
-		return nil
+		return printCommandResult(jsonOutput, "autostart.enable", "enabled")
 	case "disable":
 		if err := removeQuietAutostartOverride(); err != nil {
 			return err
@@ -148,26 +232,43 @@ func handleAutostart(command string) error {
 		if err := runSystemctlUser("disable", atmosUserService); err != nil {
 			return fmt.Errorf("autostart partially disabled: removed desktop override at %s, but disabling %s failed: %w", quietAutostartPath(), atmosUserService, err)
 		}
-		fmt.Println("disabled")
-		return nil
+		return printCommandResult(jsonOutput, "autostart.disable", "disabled")
 	default:
 		return fmt.Errorf("unknown autostart command %q", command)
 	}
 }
 
-func quietAutostartStatus() (bool, string, error) {
+func quietAutostartStatus() (autostartStatus, error) {
 	overrideHidden, err := quietAutostartOverrideHidden()
 	if err != nil {
-		return false, "", err
+		return autostartStatus{}, err
 	}
 
 	serviceEnabled, err := userServiceEnabled()
 	if err != nil {
-		return false, "", err
+		return autostartStatus{}, err
 	}
 
-	enabled, detail := formatQuietAutostartStatus(overrideHidden, serviceEnabled)
-	return enabled, detail, nil
+	return buildAutostartStatus(overrideHidden, serviceEnabled), nil
+}
+
+func buildAutostartStatus(overrideHidden, serviceEnabled bool) autostartStatus {
+	return autostartStatus{
+		SchemaVersion:  schemaVersion,
+		Enabled:        overrideHidden && serviceEnabled,
+		OverrideHidden: overrideHidden,
+		ServiceEnabled: serviceEnabled,
+		OverridePath:   quietAutostartPath(),
+		Service:        atmosUserService,
+	}
+}
+
+func formatAutostartStatusText(status autostartStatus) string {
+	enabled, detail := formatQuietAutostartStatus(status.OverrideHidden, status.ServiceEnabled)
+	if enabled {
+		return "enabled\t" + detail
+	}
+	return "disabled\t" + detail
 }
 
 func formatQuietAutostartStatus(overrideHidden, serviceEnabled bool) (bool, string) {
@@ -293,37 +394,53 @@ func runSystemctlUser(args ...string) error {
 	return nil
 }
 
-func atmosInterfaceStatus() (string, string, error) {
-	iface, err := net.InterfaceByName("atmos")
+func atmosInterfaceStatus() (vpnStatus, error) {
+	iface, err := net.InterfaceByName(atmosInterfaceName)
 	if err != nil {
 		if errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "no such network interface") {
-			return "disconnected", "interface missing", nil
+			return newVPNStatus("disconnected", nil, reasonInterfaceMissing), nil
 		}
-		return "", "", err
+		return vpnStatus{}, err
 	}
 
 	addrs, err := iface.Addrs()
 	if err != nil {
-		return "", "", err
+		return vpnStatus{}, err
 	}
 
-	var details []string
-	hasAtmosAddress := false
+	var addressTexts []string
 	for _, addr := range addrs {
-		text := addr.String()
-		details = append(details, text)
-		if strings.HasPrefix(text, "100.65.") {
-			hasAtmosAddress = true
+		addressTexts = append(addressTexts, addr.String())
+	}
+
+	return classifyAtmosInterfaceStatus(iface.Flags, addressTexts), nil
+}
+
+func classifyAtmosInterfaceStatus(flags net.Flags, addresses []string) vpnStatus {
+	if flags&net.FlagUp == 0 {
+		return newVPNStatus("disconnected", addresses, reasonInterfaceDown)
+	}
+
+	for _, address := range addresses {
+		if strings.HasPrefix(address, "100.65.") {
+			return newVPNStatus("connected", addresses, "")
 		}
 	}
 
-	if iface.Flags&net.FlagUp == 0 {
-		return "disconnected", "interface down", nil
+	return newVPNStatus("unknown", addresses, reasonNoAtmosAddress)
+}
+
+func newVPNStatus(state string, addresses []string, reason string) vpnStatus {
+	if addresses == nil {
+		addresses = []string{}
 	}
-	if hasAtmosAddress {
-		return "connected", strings.Join(details, ","), nil
+	return vpnStatus{
+		SchemaVersion: schemaVersion,
+		State:         state,
+		Interface:     atmosInterfaceName,
+		Addresses:     addresses,
+		Reason:        reason,
 	}
-	return "unknown", strings.Join(details, ","), nil
 }
 
 func sendSubject(addr, subject string, timeout time.Duration) error {
@@ -359,4 +476,24 @@ func buildFrame(subject string) ([]byte, error) {
 	}
 
 	return append(frame, 0), nil
+}
+
+func printCommandResult(jsonOutput bool, command, text string) error {
+	if !jsonOutput {
+		if text != "" {
+			fmt.Println(text)
+		}
+		return nil
+	}
+	return printJSON(commandResult{
+		SchemaVersion: schemaVersion,
+		OK:            true,
+		Command:       command,
+	})
+}
+
+func printJSON(value any) error {
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetEscapeHTML(false)
+	return encoder.Encode(value)
 }

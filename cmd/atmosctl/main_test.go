@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,51 @@ func TestVPNCommandSubject(t *testing.T) {
 			}
 			if send != tt.wantSend {
 				t.Fatalf("send = %t, want %t", send, tt.wantSend)
+			}
+		})
+	}
+}
+
+func TestVPNStatusJSONContract(t *testing.T) {
+	status := classifyAtmosInterfaceStatus(net.FlagUp, []string{"100.65.0.1/32"})
+	assertJSON(t, status, `{"schemaVersion":1,"state":"connected","interface":"atmos","addresses":["100.65.0.1/32"]}`)
+
+	status = newVPNStatus("disconnected", nil, reasonInterfaceMissing)
+	assertJSON(t, status, `{"schemaVersion":1,"state":"disconnected","interface":"atmos","addresses":[],"reason":"interface_missing"}`)
+}
+
+func TestFormatVPNStatusText(t *testing.T) {
+	tests := []struct {
+		name   string
+		status vpnStatus
+		want   string
+	}{
+		{
+			name:   "connected",
+			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"100.65.0.1/32"}),
+			want:   "connected\t100.65.0.1/32",
+		},
+		{
+			name:   "missing",
+			status: newVPNStatus("disconnected", nil, reasonInterfaceMissing),
+			want:   "disconnected\tinterface missing",
+		},
+		{
+			name:   "down",
+			status: classifyAtmosInterfaceStatus(0, []string{"100.65.0.1/32"}),
+			want:   "disconnected\tinterface down",
+		},
+		{
+			name:   "unknown",
+			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"10.0.0.1/32"}),
+			want:   "unknown\t10.0.0.1/32",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatVPNStatusText(tt.status); got != tt.want {
+				t.Fatalf("formatVPNStatusText() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -136,6 +182,30 @@ func TestFormatQuietAutostartStatus(t *testing.T) {
 	}
 }
 
+func TestAutostartStatusJSONContract(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configDir)
+
+	status := buildAutostartStatus(true, false)
+	want := `{"schemaVersion":1,"enabled":false,"overrideHidden":true,"serviceEnabled":false,"overridePath":"` +
+		filepath.Join(configDir, "autostart", atmosAutostartFilename) +
+		`","service":"atmos-agent.service"}`
+	assertJSON(t, status, want)
+}
+
+func TestVersionAndCommandJSONContracts(t *testing.T) {
+	assertJSON(t, versionOutput{
+		SchemaVersion: schemaVersion,
+		Version:       version,
+	}, `{"schemaVersion":1,"version":"`+version+`"}`)
+
+	assertJSON(t, commandResult{
+		SchemaVersion: schemaVersion,
+		OK:            true,
+		Command:       "vpn.pause",
+	}, `{"schemaVersion":1,"ok":true,"command":"vpn.pause"}`)
+}
+
 func TestWriteQuietAutostartOverride(t *testing.T) {
 	configDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configDir)
@@ -173,5 +243,17 @@ func TestWriteQuietAutostartOverride(t *testing.T) {
 	}
 	if got := info.Mode().Perm(); got != 0o644 {
 		t.Fatalf("mode = %v, want 0644", got)
+	}
+}
+
+func assertJSON(t *testing.T, value any, want string) {
+	t.Helper()
+
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); got != want {
+		t.Fatalf("json = %s, want %s", got, want)
 	}
 }

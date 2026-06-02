@@ -22,6 +22,7 @@ GitHub Actions runs the same basic verification on push and pull request:
 - `go test ./...`
 - `go build -buildvcs=false -o bin/atmosctl ./cmd/atmosctl`
 - `bin/atmosctl version`
+- `bin/atmosctl --json version`
 
 Pin all GitHub Actions `uses:` references to full commit SHAs. Do not use
 floating version tags such as `@v6`.
@@ -30,8 +31,11 @@ Manual checks:
 
 ```bash
 bin/atmosctl version
+bin/atmosctl --json version
 bin/atmosctl vpn status
+bin/atmosctl --json vpn status
 bin/atmosctl autostart status
+bin/atmosctl --json autostart status
 ```
 
 ## Commit Style

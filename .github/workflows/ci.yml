@@ -31,4 +31,6 @@ jobs:
         run: go build -buildvcs=false -o bin/atmosctl ./cmd/atmosctl
 
       - name: Verify CLI
-        run: bin/atmosctl version
+        run: |
+          bin/atmosctl version
+          bin/atmosctl --json version
