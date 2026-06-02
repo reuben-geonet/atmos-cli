@@ -192,16 +192,24 @@ func printVPNStatus(jsonOutput bool) error {
 }
 
 func formatVPNStatusText(status vpnStatus) string {
-	detail := vpnStatusDetail(status)
-	if detail == "" {
-		return status.State
+	details := vpnStatusDetails(status)
+	if len(details) == 0 {
+		return vpnStatusTextState(status)
 	}
 
-	return fmt.Sprintf("%s\t%s", status.State, detail)
+	return fmt.Sprintf("%s\t%s", vpnStatusTextState(status), strings.Join(details, ", "))
 }
 
-func vpnStatusDetail(status vpnStatus) string {
+func vpnStatusTextState(status vpnStatus) string {
+	if status.ServiceActive {
+		return status.State
+	}
+	return "agent-" + status.ServiceState
+}
+
+func vpnStatusDetails(status vpnStatus) []string {
 	var details []string
+	details = append(details, "service "+status.ServiceState)
 	switch status.Reason {
 	case reasonInterfaceMissing:
 		details = append(details, "interface missing")
@@ -209,12 +217,9 @@ func vpnStatusDetail(status vpnStatus) string {
 		details = append(details, "interface down")
 	}
 	if status.Reason != reasonInterfaceDown && len(status.Addresses) > 0 {
-		details = append(details, strings.Join(status.Addresses, ","))
+		details = append(details, "addresses "+strings.Join(status.Addresses, ","))
 	}
-	if !status.ServiceActive {
-		details = append(details, "service "+status.ServiceState)
-	}
-	return strings.Join(details, ", ")
+	return details
 }
 
 func handleAutostart(command string, jsonOutput bool) error {

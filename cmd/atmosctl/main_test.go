@@ -87,6 +87,7 @@ func TestVPNStatusJSONContract(t *testing.T) {
 func TestFormatVPNStatusText(t *testing.T) {
 	activeService := serviceActivity{active: true, state: "active"}
 	inactiveService := serviceActivity{active: false, state: "inactive"}
+	failedService := serviceActivity{active: false, state: "failed"}
 
 	tests := []struct {
 		name   string
@@ -96,27 +97,37 @@ func TestFormatVPNStatusText(t *testing.T) {
 		{
 			name:   "connected",
 			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"100.65.0.1/32"}, activeService),
-			want:   "connected\t100.65.0.1/32",
+			want:   "connected\tservice active, addresses 100.65.0.1/32",
 		},
 		{
-			name:   "missing",
+			name:   "missing with active service",
+			status: newVPNStatus("disconnected", nil, reasonInterfaceMissing, activeService),
+			want:   "disconnected\tservice active, interface missing",
+		},
+		{
+			name:   "missing with inactive service",
 			status: newVPNStatus("disconnected", nil, reasonInterfaceMissing, inactiveService),
-			want:   "disconnected\tinterface missing, service inactive",
+			want:   "agent-inactive\tservice inactive, interface missing",
+		},
+		{
+			name:   "missing with failed service",
+			status: newVPNStatus("disconnected", nil, reasonInterfaceMissing, failedService),
+			want:   "agent-failed\tservice failed, interface missing",
 		},
 		{
 			name:   "down",
 			status: classifyAtmosInterfaceStatus(0, []string{"100.65.0.1/32"}, activeService),
-			want:   "disconnected\tinterface down",
+			want:   "disconnected\tservice active, interface down",
 		},
 		{
 			name:   "unknown",
 			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"10.0.0.1/32"}, activeService),
-			want:   "unknown\t10.0.0.1/32",
+			want:   "unknown\tservice active, addresses 10.0.0.1/32",
 		},
 		{
 			name:   "unknown with inactive service",
 			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"10.0.0.1/32"}, inactiveService),
-			want:   "unknown\t10.0.0.1/32, service inactive",
+			want:   "agent-inactive\tservice inactive, addresses 10.0.0.1/32",
 		},
 	}
 
