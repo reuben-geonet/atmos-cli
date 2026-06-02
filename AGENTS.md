@@ -17,6 +17,13 @@ make test
 make version
 ```
 
+GitHub Actions runs the same basic verification on push and pull request:
+
+- `go test ./...`
+- `go build -buildvcs=false -o bin/atmosctl ./cmd/atmosctl`
+- `bin/atmosctl version`
+- `bin/atmosctl --dry-run vpn pause`
+
 Manual checks:
 
 ```bash
