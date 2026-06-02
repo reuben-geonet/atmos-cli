@@ -24,7 +24,6 @@ const (
 
 	subjectStart = "tunnel.Start"
 	subjectStop  = "tunnel.Stop"
-	subjectState = "tunnel.GetStateInfo"
 )
 
 type message struct {
@@ -38,7 +37,6 @@ type message struct {
 func main() {
 	addr := flag.String("addr", defaultBackendAddr, "Atmos backend pubsub address")
 	timeout := flag.Duration("timeout", 2*time.Second, "TCP connect/write timeout")
-	dryRun := flag.Bool("dry-run", false, "print the pubsub frame instead of sending it")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
@@ -60,7 +58,7 @@ func main() {
 			usage()
 			os.Exit(2)
 		}
-		err = handleVPN(flag.Arg(1), *addr, *timeout, *dryRun)
+		err = handleVPN(flag.Arg(1), *addr, *timeout)
 	case "autostart":
 		if flag.NArg() != 2 {
 			usage()
@@ -79,21 +77,30 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "usage: %s [--addr %s] [--timeout 2s] [--dry-run] version | vpn status|pause|resume|get-state | autostart status|enable|disable\n", os.Args[0], defaultBackendAddr)
+	fmt.Fprintf(os.Stderr, "usage: %s [--addr %s] [--timeout 2s] version | vpn status|pause|resume | autostart status|enable|disable\n", os.Args[0], defaultBackendAddr)
 }
 
-func handleVPN(command, addr string, timeout time.Duration, dryRun bool) error {
+func handleVPN(command, addr string, timeout time.Duration) error {
+	subject, sendsPubsub, err := vpnCommandSubject(command)
+	if err != nil {
+		return err
+	}
+	if !sendsPubsub {
+		return printStatus()
+	}
+	return sendSubject(addr, subject, timeout)
+}
+
+func vpnCommandSubject(command string) (string, bool, error) {
 	switch command {
 	case "status":
-		return printStatus()
+		return "", false, nil
 	case "pause", "stop":
-		return sendSubject(addr, subjectStop, timeout, dryRun)
+		return subjectStop, true, nil
 	case "resume", "start":
-		return sendSubject(addr, subjectStart, timeout, dryRun)
-	case "get-state":
-		return sendSubject(addr, subjectState, timeout, dryRun)
+		return subjectStart, true, nil
 	default:
-		return fmt.Errorf("unknown vpn command %q", command)
+		return "", false, fmt.Errorf("unknown vpn command %q", command)
 	}
 }
 
@@ -130,7 +137,7 @@ func handleAutostart(command string) error {
 			return err
 		}
 		if err := runSystemctlUser("enable", atmosUserService); err != nil {
-			return err
+			return fmt.Errorf("autostart partially configured: wrote hidden desktop override at %s, but enabling %s failed: %w", quietAutostartPath(), atmosUserService, err)
 		}
 		fmt.Println("enabled")
 		return nil
@@ -139,7 +146,7 @@ func handleAutostart(command string) error {
 			return err
 		}
 		if err := runSystemctlUser("disable", atmosUserService); err != nil {
-			return err
+			return fmt.Errorf("autostart partially disabled: removed desktop override at %s, but disabling %s failed: %w", quietAutostartPath(), atmosUserService, err)
 		}
 		fmt.Println("disabled")
 		return nil
@@ -159,6 +166,11 @@ func quietAutostartStatus() (bool, string, error) {
 		return false, "", err
 	}
 
+	enabled, detail := formatQuietAutostartStatus(overrideHidden, serviceEnabled)
+	return enabled, detail, nil
+}
+
+func formatQuietAutostartStatus(overrideHidden, serviceEnabled bool) (bool, string) {
 	details := []string{}
 	if overrideHidden {
 		details = append(details, "autostart override hidden")
@@ -171,7 +183,7 @@ func quietAutostartStatus() (bool, string, error) {
 		details = append(details, "user service disabled")
 	}
 
-	return overrideHidden && serviceEnabled, strings.Join(details, ", "), nil
+	return overrideHidden && serviceEnabled, strings.Join(details, ", ")
 }
 
 func quietAutostartOverrideHidden() (bool, error) {
@@ -183,13 +195,17 @@ func quietAutostartOverrideHidden() (bool, error) {
 		return false, err
 	}
 
-	for _, line := range strings.Split(string(data), "\n") {
+	return desktopEntryHidden(string(data)), nil
+}
+
+func desktopEntryHidden(data string) bool {
+	for _, line := range strings.Split(data, "\n") {
 		key, value, ok := strings.Cut(line, "=")
 		if ok && strings.EqualFold(strings.TrimSpace(key), "Hidden") {
-			return strings.EqualFold(strings.TrimSpace(value), "true"), nil
+			return strings.EqualFold(strings.TrimSpace(value), "true")
 		}
 	}
-	return false, nil
+	return false
 }
 
 func userServiceEnabled() (bool, error) {
@@ -310,15 +326,10 @@ func atmosInterfaceStatus() (string, string, error) {
 	return "unknown", strings.Join(details, ","), nil
 }
 
-func sendSubject(addr, subject string, timeout time.Duration, dryRun bool) error {
+func sendSubject(addr, subject string, timeout time.Duration) error {
 	frame, err := buildFrame(subject)
 	if err != nil {
 		return err
-	}
-
-	if dryRun {
-		fmt.Printf("%s\\0\n", string(frame[:len(frame)-1]))
-		return nil
 	}
 
 	conn, err := net.DialTimeout("tcp", addr, timeout)
