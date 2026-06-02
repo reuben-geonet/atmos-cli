@@ -1,0 +1,7 @@
+# Build outputs
+bin/
+
+# Temporary files
+*.log
+*.tmp
+*.bak
