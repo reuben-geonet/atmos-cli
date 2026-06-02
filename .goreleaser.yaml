@@ -1,0 +1,54 @@
+version: 2
+
+project_name: atmosctl
+
+builds:
+  - id: atmosctl
+    main: ./cmd/atmosctl
+    binary: atmosctl
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: linux-amd64
+    ids:
+      - atmosctl
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+
+nfpms:
+  - id: rpm
+    package_name: atmosctl
+    ids:
+      - atmosctl
+    formats:
+      - rpm
+    file_name_template: "{{ .ConventionalFileName }}"
+    bindir: /usr/bin
+    maintainer: atmosctl contributors <reuben-geonet@users.noreply.github.com>
+    description: Unofficial CLI for controlling the Atmos Agent VPN tunnel.
+    vendor: atmosctl contributors
+    homepage: https://github.com/reuben-geonet/atmos-cli
+    license: MIT
+    contents:
+      - src: README.md
+        dst: /usr/share/doc/atmosctl/README.md
+      - src: LICENSE
+        dst: /usr/share/licenses/atmosctl/LICENSE
+    rpm:
+      summary: Unofficial CLI for controlling the Atmos Agent VPN tunnel
+
+checksum:
+  name_template: checksums.txt

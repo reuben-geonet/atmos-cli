@@ -1,7 +1,8 @@
 HELPER := bin/atmosctl
 GOCACHE ?= /tmp/atmos-cli-gocache
+GORELEASER ?= go run github.com/goreleaser/goreleaser/v2@v2.16.0
 
-.PHONY: build clean test version
+.PHONY: build clean package release-check test version
 
 build:
 	mkdir -p bin $(GOCACHE)
@@ -13,5 +14,11 @@ test:
 version: build
 	$(HELPER) version
 
+release-check:
+	$(GORELEASER) check
+
+package:
+	$(GORELEASER) release --snapshot --clean
+
 clean:
-	rm -rf bin
+	rm -rf bin dist

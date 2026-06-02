@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-const (
-	version = "0.1.0"
+var version = "0.1.0"
 
+const (
 	schemaVersion = 1
 
 	defaultBackendAddr = "127.0.0.1:6668"

@@ -34,3 +34,19 @@ jobs:
         run: |
           bin/atmosctl version
           bin/atmosctl --json version
+
+      - name: Check release config
+        run: make release-check
+
+      - name: Build snapshot packages
+        run: make package
+
+      - name: Verify Fedora 44 RPM install
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" fedora:44 sh -euxc '
+            dnf install -y /dist/*.rpm
+            atmosctl version
+            atmosctl --json version
+            rpm -q atmosctl
+            rpm -ql atmosctl
+          '
