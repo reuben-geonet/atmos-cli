@@ -34,8 +34,8 @@ bin/atmosctl version
 bin/atmosctl --json version
 bin/atmosctl vpn status
 bin/atmosctl --json vpn status
-bin/atmosctl autostart status
-bin/atmosctl --json autostart status
+bin/atmosctl gui-autostart status
+bin/atmosctl --json gui-autostart status
 ```
 
 ## Commit Style
@@ -85,13 +85,13 @@ which runs `/usr/bin/atmos`. That wrapper starts `atmos-agent.service` if the
 service is not running, but opens the Electron GUI if the service is already
 active.
 
-`atmosctl autostart enable` creates a per-user XDG autostart override at
-`~/.config/autostart/AtmosAgent.desktop` with `Hidden=true` and enables the
-user service `atmos-agent.service` for `graphical-session.target`. This keeps
-the backend starting at login without the packaged GUI autostart entry opening
-the window.
+`atmosctl gui-autostart disable` creates a per-user XDG autostart override at
+`~/.config/autostart/AtmosAgent.desktop` with `Hidden=true` and enables the user
+service `atmos-agent.service` for `graphical-session.target`. This keeps the
+backend starting at login without the packaged GUI autostart entry opening the
+window.
 
-`atmosctl autostart disable` removes that per-user override and disables the
+`atmosctl gui-autostart enable` removes that per-user override and disables the
 user service, restoring the packaged login behavior.
 
 ## Safety Notes

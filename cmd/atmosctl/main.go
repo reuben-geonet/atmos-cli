@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var version = "0.1.0"
+var version = "0.2.0"
 
 const (
 	schemaVersion = 1
@@ -48,12 +48,12 @@ func main() {
 			os.Exit(2)
 		}
 		err = handleVPN(flag.Arg(1), *addr, *timeout, *jsonOutput)
-	case "autostart":
+	case "gui-autostart":
 		if flag.NArg() != 2 {
 			usage()
 			os.Exit(2)
 		}
-		err = handleAutostart(flag.Arg(1), *jsonOutput)
+		err = handleGuiAutostart(flag.Arg(1), *jsonOutput)
 	default:
 		usage()
 		os.Exit(2)
@@ -66,5 +66,5 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "usage: %s [--addr %s] [--timeout 2s] [--json] version | vpn status|pause|resume | autostart status|enable|disable\n", os.Args[0], defaultBackendAddr)
+	fmt.Fprintf(os.Stderr, "usage: %s [--addr %s] [--timeout 2s] [--json] version | vpn status|pause|resume | gui-autostart status|enable|disable\n", os.Args[0], defaultBackendAddr)
 }

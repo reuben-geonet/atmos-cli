@@ -199,7 +199,7 @@ func TestDesktopEntryHidden(t *testing.T) {
 	}
 }
 
-func TestFormatQuietAutostartStatus(t *testing.T) {
+func TestFormatGuiAutostartStatus(t *testing.T) {
 	tests := []struct {
 		name           string
 		overrideHidden bool
@@ -208,31 +208,32 @@ func TestFormatQuietAutostartStatus(t *testing.T) {
 		wantDetail     string
 	}{
 		{
-			name:           "fully enabled",
+			name:           "suppressed with service enabled",
 			overrideHidden: true,
+			serviceEnabled: true,
+			wantDetail:     "GUI login launch suppressed, user service enabled",
+		},
+		{
+			name:           "suppressed without service enabled",
+			overrideHidden: true,
+			wantDetail:     "GUI login launch suppressed, user service disabled",
+		},
+		{
+			name:           "enabled with service enabled",
 			serviceEnabled: true,
 			wantEnabled:    true,
-			wantDetail:     "autostart override hidden, user service enabled",
+			wantDetail:     "GUI login launch enabled, user service enabled",
 		},
 		{
-			name:           "override only",
-			overrideHidden: true,
-			wantDetail:     "autostart override hidden, user service disabled",
-		},
-		{
-			name:           "service only",
-			serviceEnabled: true,
-			wantDetail:     "autostart override absent, user service enabled",
-		},
-		{
-			name:       "fully disabled",
-			wantDetail: "autostart override absent, user service disabled",
+			name:        "default enabled",
+			wantEnabled: true,
+			wantDetail:  "GUI login launch enabled, user service disabled",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			enabled, detail := formatQuietAutostartStatus(tt.overrideHidden, tt.serviceEnabled)
+			enabled, detail := formatGuiAutostartStatus(tt.overrideHidden, tt.serviceEnabled)
 			if enabled != tt.wantEnabled {
 				t.Fatalf("enabled = %t, want %t", enabled, tt.wantEnabled)
 			}
@@ -243,12 +244,12 @@ func TestFormatQuietAutostartStatus(t *testing.T) {
 	}
 }
 
-func TestAutostartStatusJSONContract(t *testing.T) {
+func TestGuiAutostartStatusJSONContract(t *testing.T) {
 	configDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configDir)
 
-	status := buildAutostartStatus(true, false)
-	want := `{"schemaVersion":1,"enabled":false,"overrideHidden":true,"serviceEnabled":false,"overridePath":"` +
+	status := buildGuiAutostartStatus(false, false)
+	want := `{"schemaVersion":1,"enabled":true,"overrideHidden":false,"serviceEnabled":false,"overridePath":"` +
 		filepath.Join(configDir, "autostart", atmosAutostartFilename) +
 		`","service":"atmos-agent.service"}`
 	assertJSON(t, status, want)
@@ -267,11 +268,11 @@ func TestVersionAndCommandJSONContracts(t *testing.T) {
 	}, `{"schemaVersion":1,"ok":true,"command":"vpn.pause"}`)
 }
 
-func TestWriteQuietAutostartOverride(t *testing.T) {
+func TestWriteGuiAutostartSuppressOverride(t *testing.T) {
 	configDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configDir)
 
-	if err := writeQuietAutostartOverride(); err != nil {
+	if err := writeGuiAutostartSuppressOverride(); err != nil {
 		t.Fatal(err)
 	}
 

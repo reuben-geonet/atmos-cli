@@ -50,9 +50,9 @@ atmosctl version
 atmosctl vpn status
 atmosctl vpn pause
 atmosctl vpn resume
-atmosctl autostart status
-atmosctl autostart enable
-atmosctl autostart disable
+atmosctl gui-autostart status
+atmosctl gui-autostart enable
+atmosctl gui-autostart disable
 ```
 
 Use `--json` before the command for machine-readable output:
@@ -60,8 +60,14 @@ Use `--json` before the command for machine-readable output:
 ```sh
 atmosctl --json version
 atmosctl --json vpn status
-atmosctl --json autostart status
+atmosctl --json gui-autostart status
 ```
+
+`gui-autostart` controls whether the Atmos GUI opens at login. Disabling it
+adds a per-user hidden desktop override for the packaged GUI entry and enables
+the user service so the backend can still start at desktop login without opening
+the GUI window.
+Enabling it removes that override and restores the packaged GUI login behavior.
 
 `--json vpn status` includes the user service state so integrations can
 distinguish a disconnected tunnel from an inactive Atmos backend:

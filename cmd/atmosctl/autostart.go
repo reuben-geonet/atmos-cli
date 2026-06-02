@@ -10,7 +10,7 @@ import (
 
 const atmosAutostartFilename = "AtmosAgent.desktop"
 
-type autostartStatus struct {
+type guiAutostartStatus struct {
 	SchemaVersion  int    `json:"schemaVersion"`
 	Enabled        bool   `json:"enabled"`
 	OverrideHidden bool   `json:"overrideHidden"`
@@ -19,78 +19,78 @@ type autostartStatus struct {
 	Service        string `json:"service"`
 }
 
-func handleAutostart(command string, jsonOutput bool) error {
+func handleGuiAutostart(command string, jsonOutput bool) error {
 	switch command {
 	case "status":
-		status, err := quietAutostartStatus()
+		status, err := guiAutostartStatusValue()
 		if err != nil {
 			return err
 		}
 		if jsonOutput {
 			return printJSON(status)
 		}
-		fmt.Println(formatAutostartStatusText(status))
+		fmt.Println(formatGuiAutostartStatusText(status))
 		return nil
 	case "enable":
-		if err := writeQuietAutostartOverride(); err != nil {
-			return err
-		}
-		if err := runSystemctlUser("enable", atmosUserService); err != nil {
-			return fmt.Errorf("autostart partially configured: wrote hidden desktop override at %s, but enabling %s failed: %w", quietAutostartPath(), atmosUserService, err)
-		}
-		return printCommandResult(jsonOutput, "autostart.enable", "enabled")
-	case "disable":
-		if err := removeQuietAutostartOverride(); err != nil {
+		if err := removeGuiAutostartOverride(); err != nil {
 			return err
 		}
 		if err := runSystemctlUser("disable", atmosUserService); err != nil {
-			return fmt.Errorf("autostart partially disabled: removed desktop override at %s, but disabling %s failed: %w", quietAutostartPath(), atmosUserService, err)
+			return fmt.Errorf("gui-autostart partially enabled: removed hidden desktop override at %s, but disabling %s failed: %w", guiAutostartOverridePath(), atmosUserService, err)
 		}
-		return printCommandResult(jsonOutput, "autostart.disable", "disabled")
+		return printCommandResult(jsonOutput, "gui-autostart.enable", "enabled")
+	case "disable":
+		if err := writeGuiAutostartSuppressOverride(); err != nil {
+			return err
+		}
+		if err := runSystemctlUser("enable", atmosUserService); err != nil {
+			return fmt.Errorf("gui-autostart partially disabled: wrote hidden desktop override at %s, but enabling %s failed: %w", guiAutostartOverridePath(), atmosUserService, err)
+		}
+		return printCommandResult(jsonOutput, "gui-autostart.disable", "disabled")
 	default:
-		return fmt.Errorf("unknown autostart command %q", command)
+		return fmt.Errorf("unknown gui-autostart command %q", command)
 	}
 }
 
-func quietAutostartStatus() (autostartStatus, error) {
-	overrideHidden, err := quietAutostartOverrideHidden()
+func guiAutostartStatusValue() (guiAutostartStatus, error) {
+	overrideHidden, err := guiAutostartOverrideHidden()
 	if err != nil {
-		return autostartStatus{}, err
+		return guiAutostartStatus{}, err
 	}
 
 	serviceEnabled, err := userServiceEnabled()
 	if err != nil {
-		return autostartStatus{}, err
+		return guiAutostartStatus{}, err
 	}
 
-	return buildAutostartStatus(overrideHidden, serviceEnabled), nil
+	return buildGuiAutostartStatus(overrideHidden, serviceEnabled), nil
 }
 
-func buildAutostartStatus(overrideHidden, serviceEnabled bool) autostartStatus {
-	return autostartStatus{
+func buildGuiAutostartStatus(overrideHidden, serviceEnabled bool) guiAutostartStatus {
+	return guiAutostartStatus{
 		SchemaVersion:  schemaVersion,
-		Enabled:        overrideHidden && serviceEnabled,
+		Enabled:        !overrideHidden,
 		OverrideHidden: overrideHidden,
 		ServiceEnabled: serviceEnabled,
-		OverridePath:   quietAutostartPath(),
+		OverridePath:   guiAutostartOverridePath(),
 		Service:        atmosUserService,
 	}
 }
 
-func formatAutostartStatusText(status autostartStatus) string {
-	enabled, detail := formatQuietAutostartStatus(status.OverrideHidden, status.ServiceEnabled)
+func formatGuiAutostartStatusText(status guiAutostartStatus) string {
+	enabled, detail := formatGuiAutostartStatus(status.OverrideHidden, status.ServiceEnabled)
 	if enabled {
 		return "enabled\t" + detail
 	}
 	return "disabled\t" + detail
 }
 
-func formatQuietAutostartStatus(overrideHidden, serviceEnabled bool) (bool, string) {
+func formatGuiAutostartStatus(overrideHidden, serviceEnabled bool) (bool, string) {
 	details := []string{}
 	if overrideHidden {
-		details = append(details, "autostart override hidden")
+		details = append(details, "GUI login launch suppressed")
 	} else {
-		details = append(details, "autostart override absent")
+		details = append(details, "GUI login launch enabled")
 	}
 	if serviceEnabled {
 		details = append(details, "user service enabled")
@@ -98,11 +98,11 @@ func formatQuietAutostartStatus(overrideHidden, serviceEnabled bool) (bool, stri
 		details = append(details, "user service disabled")
 	}
 
-	return overrideHidden && serviceEnabled, strings.Join(details, ", ")
+	return !overrideHidden, strings.Join(details, ", ")
 }
 
-func quietAutostartOverrideHidden() (bool, error) {
-	data, err := os.ReadFile(quietAutostartPath())
+func guiAutostartOverrideHidden() (bool, error) {
+	data, err := os.ReadFile(guiAutostartOverridePath())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
@@ -123,8 +123,8 @@ func desktopEntryHidden(data string) bool {
 	return false
 }
 
-func writeQuietAutostartOverride() error {
-	path := quietAutostartPath()
+func writeGuiAutostartSuppressOverride() error {
+	path := guiAutostartOverridePath()
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -133,7 +133,7 @@ func writeQuietAutostartOverride() error {
 	content := `[Desktop Entry]
 Type=Application
 Name=Atmos Agent
-Comment=Disabled by Atmos GNOME Shell integration; the user service starts the backend.
+Comment=Suppresses the Atmos GUI at login; the user service starts the backend.
 Exec=/usr/bin/atmos
 Terminal=false
 Hidden=true
@@ -160,15 +160,15 @@ Hidden=true
 	return os.Rename(tmpPath, path)
 }
 
-func removeQuietAutostartOverride() error {
-	err := os.Remove(quietAutostartPath())
+func removeGuiAutostartOverride() error {
+	err := os.Remove(guiAutostartOverridePath())
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	return err
 }
 
-func quietAutostartPath() string {
+func guiAutostartOverridePath() string {
 	configDir, err := os.UserConfigDir()
 	if err != nil || configDir == "" {
 		home, homeErr := os.UserHomeDir()
