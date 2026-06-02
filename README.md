@@ -28,7 +28,3 @@ atmosctl autostart status
 atmosctl autostart enable
 atmosctl autostart disable
 ```
-
-## Related Projects
-
-- `atmos-gnome`: GNOME Shell Quick Settings integration that uses `atmosctl`.
