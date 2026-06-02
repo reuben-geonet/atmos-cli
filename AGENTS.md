@@ -24,6 +24,9 @@ GitHub Actions runs the same basic verification on push and pull request:
 - `bin/atmosctl version`
 - `bin/atmosctl --dry-run vpn pause`
 
+Pin all GitHub Actions `uses:` references to full commit SHAs. Do not use
+floating version tags such as `@v6`.
+
 Manual checks:
 
 ```bash
