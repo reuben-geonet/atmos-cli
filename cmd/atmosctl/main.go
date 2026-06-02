@@ -58,6 +58,9 @@ type vpnStatus struct {
 	Interface     string   `json:"interface"`
 	Addresses     []string `json:"addresses"`
 	Reason        string   `json:"reason,omitempty"`
+	Service       string   `json:"service"`
+	ServiceActive bool     `json:"serviceActive"`
+	ServiceState  string   `json:"serviceState"`
 }
 
 type autostartStatus struct {
@@ -73,6 +76,11 @@ type vpnCommand struct {
 	subject     string
 	canonical   string
 	sendsPubsub bool
+}
+
+type serviceActivity struct {
+	active bool
+	state  string
 }
 
 func main() {
@@ -193,16 +201,20 @@ func formatVPNStatusText(status vpnStatus) string {
 }
 
 func vpnStatusDetail(status vpnStatus) string {
+	var details []string
 	switch status.Reason {
 	case reasonInterfaceMissing:
-		return "interface missing"
+		details = append(details, "interface missing")
 	case reasonInterfaceDown:
-		return "interface down"
+		details = append(details, "interface down")
 	}
-	if len(status.Addresses) > 0 {
-		return strings.Join(status.Addresses, ",")
+	if status.Reason != reasonInterfaceDown && len(status.Addresses) > 0 {
+		details = append(details, strings.Join(status.Addresses, ","))
 	}
-	return ""
+	if !status.ServiceActive {
+		details = append(details, "service "+status.ServiceState)
+	}
+	return strings.Join(details, ", ")
 }
 
 func handleAutostart(command string, jsonOutput bool) error {
@@ -324,6 +336,32 @@ func userServiceEnabled() (bool, error) {
 	return false, fmt.Errorf("systemctl --user is-enabled %s failed: %w: %s", atmosUserService, err, text)
 }
 
+func userServiceActive() (serviceActivity, error) {
+	cmd := exec.Command("systemctl", "--user", "is-active", atmosUserService)
+	output, err := cmd.CombinedOutput()
+	return parseServiceActiveOutput(string(output), err)
+}
+
+func parseServiceActiveOutput(output string, err error) (serviceActivity, error) {
+	state := strings.TrimSpace(output)
+	if state == "" {
+		state = "unknown"
+	}
+
+	switch state {
+	case "active":
+		return serviceActivity{active: true, state: state}, nil
+	case "inactive", "failed", "activating", "deactivating", "reloading", "unknown":
+		return serviceActivity{active: false, state: state}, nil
+	}
+
+	if err != nil {
+		return serviceActivity{active: false, state: state}, fmt.Errorf("systemctl --user is-active %s failed: %w: %s", atmosUserService, err, state)
+	}
+
+	return serviceActivity{active: false, state: state}, nil
+}
+
 func writeQuietAutostartOverride() error {
 	path := quietAutostartPath()
 	dir := filepath.Dir(path)
@@ -395,10 +433,15 @@ func runSystemctlUser(args ...string) error {
 }
 
 func atmosInterfaceStatus() (vpnStatus, error) {
+	service, err := userServiceActive()
+	if err != nil {
+		return vpnStatus{}, err
+	}
+
 	iface, err := net.InterfaceByName(atmosInterfaceName)
 	if err != nil {
 		if errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "no such network interface") {
-			return newVPNStatus("disconnected", nil, reasonInterfaceMissing), nil
+			return newVPNStatus("disconnected", nil, reasonInterfaceMissing, service), nil
 		}
 		return vpnStatus{}, err
 	}
@@ -413,26 +456,29 @@ func atmosInterfaceStatus() (vpnStatus, error) {
 		addressTexts = append(addressTexts, addr.String())
 	}
 
-	return classifyAtmosInterfaceStatus(iface.Flags, addressTexts), nil
+	return classifyAtmosInterfaceStatus(iface.Flags, addressTexts, service), nil
 }
 
-func classifyAtmosInterfaceStatus(flags net.Flags, addresses []string) vpnStatus {
+func classifyAtmosInterfaceStatus(flags net.Flags, addresses []string, service serviceActivity) vpnStatus {
 	if flags&net.FlagUp == 0 {
-		return newVPNStatus("disconnected", addresses, reasonInterfaceDown)
+		return newVPNStatus("disconnected", addresses, reasonInterfaceDown, service)
 	}
 
 	for _, address := range addresses {
 		if strings.HasPrefix(address, "100.65.") {
-			return newVPNStatus("connected", addresses, "")
+			return newVPNStatus("connected", addresses, "", service)
 		}
 	}
 
-	return newVPNStatus("unknown", addresses, reasonNoAtmosAddress)
+	return newVPNStatus("unknown", addresses, reasonNoAtmosAddress, service)
 }
 
-func newVPNStatus(state string, addresses []string, reason string) vpnStatus {
+func newVPNStatus(state string, addresses []string, reason string, service serviceActivity) vpnStatus {
 	if addresses == nil {
 		addresses = []string{}
+	}
+	if service.state == "" {
+		service.state = "unknown"
 	}
 	return vpnStatus{
 		SchemaVersion: schemaVersion,
@@ -440,6 +486,9 @@ func newVPNStatus(state string, addresses []string, reason string) vpnStatus {
 		Interface:     atmosInterfaceName,
 		Addresses:     addresses,
 		Reason:        reason,
+		Service:       atmosUserService,
+		ServiceActive: service.active,
+		ServiceState:  service.state,
 	}
 }
 
@@ -451,7 +500,7 @@ func sendSubject(addr, subject string, timeout time.Duration) error {
 
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
-		return err
+		return fmt.Errorf("Atmos backend is not reachable at %s; is %s running? %w", addr, atmosUserService, err)
 	}
 	defer conn.Close()
 

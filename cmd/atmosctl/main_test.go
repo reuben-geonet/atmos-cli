@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -73,14 +74,20 @@ func TestVPNCommandSubject(t *testing.T) {
 }
 
 func TestVPNStatusJSONContract(t *testing.T) {
-	status := classifyAtmosInterfaceStatus(net.FlagUp, []string{"100.65.0.1/32"})
-	assertJSON(t, status, `{"schemaVersion":1,"state":"connected","interface":"atmos","addresses":["100.65.0.1/32"]}`)
+	activeService := serviceActivity{active: true, state: "active"}
+	inactiveService := serviceActivity{active: false, state: "inactive"}
 
-	status = newVPNStatus("disconnected", nil, reasonInterfaceMissing)
-	assertJSON(t, status, `{"schemaVersion":1,"state":"disconnected","interface":"atmos","addresses":[],"reason":"interface_missing"}`)
+	status := classifyAtmosInterfaceStatus(net.FlagUp, []string{"100.65.0.1/32"}, activeService)
+	assertJSON(t, status, `{"schemaVersion":1,"state":"connected","interface":"atmos","addresses":["100.65.0.1/32"],"service":"atmos-agent.service","serviceActive":true,"serviceState":"active"}`)
+
+	status = newVPNStatus("disconnected", nil, reasonInterfaceMissing, inactiveService)
+	assertJSON(t, status, `{"schemaVersion":1,"state":"disconnected","interface":"atmos","addresses":[],"reason":"interface_missing","service":"atmos-agent.service","serviceActive":false,"serviceState":"inactive"}`)
 }
 
 func TestFormatVPNStatusText(t *testing.T) {
+	activeService := serviceActivity{active: true, state: "active"}
+	inactiveService := serviceActivity{active: false, state: "inactive"}
+
 	tests := []struct {
 		name   string
 		status vpnStatus
@@ -88,23 +95,28 @@ func TestFormatVPNStatusText(t *testing.T) {
 	}{
 		{
 			name:   "connected",
-			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"100.65.0.1/32"}),
+			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"100.65.0.1/32"}, activeService),
 			want:   "connected\t100.65.0.1/32",
 		},
 		{
 			name:   "missing",
-			status: newVPNStatus("disconnected", nil, reasonInterfaceMissing),
-			want:   "disconnected\tinterface missing",
+			status: newVPNStatus("disconnected", nil, reasonInterfaceMissing, inactiveService),
+			want:   "disconnected\tinterface missing, service inactive",
 		},
 		{
 			name:   "down",
-			status: classifyAtmosInterfaceStatus(0, []string{"100.65.0.1/32"}),
+			status: classifyAtmosInterfaceStatus(0, []string{"100.65.0.1/32"}, activeService),
 			want:   "disconnected\tinterface down",
 		},
 		{
 			name:   "unknown",
-			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"10.0.0.1/32"}),
+			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"10.0.0.1/32"}, activeService),
 			want:   "unknown\t10.0.0.1/32",
+		},
+		{
+			name:   "unknown with inactive service",
+			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"10.0.0.1/32"}, inactiveService),
+			want:   "unknown\t10.0.0.1/32, service inactive",
 		},
 	}
 
@@ -112,6 +124,44 @@ func TestFormatVPNStatusText(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := formatVPNStatusText(tt.status); got != tt.want {
 				t.Fatalf("formatVPNStatusText() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseServiceActiveOutput(t *testing.T) {
+	tests := []struct {
+		name       string
+		output     string
+		err        error
+		wantActive bool
+		wantState  string
+		wantErr    bool
+	}{
+		{name: "active", output: "active\n", wantActive: true, wantState: "active"},
+		{name: "inactive", output: "inactive\n", err: errCommandFailed, wantState: "inactive"},
+		{name: "failed", output: "failed\n", err: errCommandFailed, wantState: "failed"},
+		{name: "unknown empty", err: errCommandFailed, wantState: "unknown"},
+		{name: "bus error", output: "Failed to connect to bus\n", err: errCommandFailed, wantState: "Failed to connect to bus", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status, err := parseServiceActiveOutput(tt.output, tt.err)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("err = nil, want error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status.active != tt.wantActive {
+				t.Fatalf("active = %t, want %t", status.active, tt.wantActive)
+			}
+			if status.state != tt.wantState {
+				t.Fatalf("state = %q, want %q", status.state, tt.wantState)
 			}
 		})
 	}
@@ -257,3 +307,5 @@ func assertJSON(t *testing.T, value any, want string) {
 		t.Fatalf("json = %s, want %s", got, want)
 	}
 }
+
+var errCommandFailed = errors.New("command failed")

@@ -36,3 +36,19 @@ atmosctl --json version
 atmosctl --json vpn status
 atmosctl --json autostart status
 ```
+
+`--json vpn status` includes the user service state so integrations can
+distinguish a disconnected tunnel from an inactive Atmos backend:
+
+```json
+{
+  "schemaVersion": 1,
+  "state": "disconnected",
+  "interface": "atmos",
+  "addresses": [],
+  "reason": "interface_missing",
+  "service": "atmos-agent.service",
+  "serviceActive": false,
+  "serviceState": "inactive"
+}
+```
