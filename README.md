@@ -8,7 +8,7 @@ Atmos Agent product.
 ## Requirements
 
 - Atmos Agent installed locally.
-- Go 1.26 or newer to build from source.
+- Go 1.26.3 or newer to build from source.
 
 ## Install
 

@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  verify:
-    name: Build and test
+  test:
+    name: Test
     runs-on: ubuntu-latest
 
     steps:
@@ -27,6 +27,19 @@ jobs:
       - name: Test
         run: go test ./...
 
+  build:
+    name: Build CLI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: go.mod
+
       - name: Build
         run: go build -buildvcs=false -o bin/atmosctl ./cmd/atmosctl
 
@@ -35,8 +48,38 @@ jobs:
           bin/atmosctl version
           bin/atmosctl --json version
 
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: go.mod
+
       - name: Check release config
         run: make release-check
+
+      - name: Build snapshot packages
+        run: make package
+
+  fedora44-install:
+    name: Fedora 44 RPM install
+    runs-on: ubuntu-latest
+    needs: package
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: go.mod
 
       - name: Build snapshot packages
         run: make package
