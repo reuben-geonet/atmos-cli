@@ -25,6 +25,7 @@ type vpnStatus struct {
 	Service       string   `json:"service"`
 	ServiceActive bool     `json:"serviceActive"`
 	ServiceState  string   `json:"serviceState"`
+	LoggedIn      *bool    `json:"loggedIn"`
 }
 
 type vpnCommand struct {
@@ -106,6 +107,14 @@ func vpnStatusTextState(status vpnStatus) string {
 func vpnStatusDetails(status vpnStatus) []string {
 	var details []string
 	details = append(details, "service "+status.ServiceState)
+	switch {
+	case status.LoggedIn == nil:
+		details = append(details, "login unavailable")
+	case *status.LoggedIn:
+		details = append(details, "logged in")
+	default:
+		details = append(details, "logged out")
+	}
 	switch status.Reason {
 	case reasonInterfaceMissing:
 		details = append(details, "interface missing")
@@ -123,11 +132,12 @@ func atmosInterfaceStatus() (vpnStatus, error) {
 	if err != nil {
 		return vpnStatus{}, err
 	}
+	loggedIn := agentLoggedIn()
 
 	iface, err := net.InterfaceByName(atmosInterfaceName)
 	if err != nil {
 		if errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "no such network interface") {
-			return newVPNStatus("disconnected", nil, reasonInterfaceMissing, service), nil
+			return newVPNStatus("disconnected", nil, reasonInterfaceMissing, service, loggedIn), nil
 		}
 		return vpnStatus{}, err
 	}
@@ -142,24 +152,24 @@ func atmosInterfaceStatus() (vpnStatus, error) {
 		addressTexts = append(addressTexts, addr.String())
 	}
 
-	return classifyAtmosInterfaceStatus(iface.Flags, addressTexts, service), nil
+	return classifyAtmosInterfaceStatus(iface.Flags, addressTexts, service, loggedIn), nil
 }
 
-func classifyAtmosInterfaceStatus(flags net.Flags, addresses []string, service serviceActivity) vpnStatus {
+func classifyAtmosInterfaceStatus(flags net.Flags, addresses []string, service serviceActivity, loggedIn *bool) vpnStatus {
 	if flags&net.FlagUp == 0 {
-		return newVPNStatus("disconnected", addresses, reasonInterfaceDown, service)
+		return newVPNStatus("disconnected", addresses, reasonInterfaceDown, service, loggedIn)
 	}
 
 	for _, address := range addresses {
 		if strings.HasPrefix(address, "100.65.") {
-			return newVPNStatus("connected", addresses, "", service)
+			return newVPNStatus("connected", addresses, "", service, loggedIn)
 		}
 	}
 
-	return newVPNStatus("unknown", addresses, reasonNoAtmosAddress, service)
+	return newVPNStatus("unknown", addresses, reasonNoAtmosAddress, service, loggedIn)
 }
 
-func newVPNStatus(state string, addresses []string, reason string, service serviceActivity) vpnStatus {
+func newVPNStatus(state string, addresses []string, reason string, service serviceActivity, loggedIn *bool) vpnStatus {
 	if addresses == nil {
 		addresses = []string{}
 	}
@@ -175,5 +185,6 @@ func newVPNStatus(state string, addresses []string, reason string, service servi
 		Service:       atmosUserService,
 		ServiceActive: service.active,
 		ServiceState:  service.state,
+		LoggedIn:      loggedIn,
 	}
 }

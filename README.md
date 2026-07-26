@@ -70,7 +70,9 @@ the GUI window.
 Enabling it removes that override and restores the packaged GUI login behavior.
 
 `--json vpn status` includes the user service state so integrations can
-distinguish a disconnected tunnel from an inactive Atmos backend:
+distinguish a disconnected tunnel from an inactive Atmos backend. It also
+includes the Atmos login state as `true`, `false`, or `null` when the state
+cannot be determined:
 
 ```json
 {
@@ -81,6 +83,7 @@ distinguish a disconnected tunnel from an inactive Atmos backend:
   "reason": "interface_missing",
   "service": "atmos-agent.service",
   "serviceActive": false,
-  "serviceState": "inactive"
+  "serviceState": "inactive",
+  "loggedIn": null
 }
 ```

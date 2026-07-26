@@ -77,11 +77,11 @@ func TestVPNStatusJSONContract(t *testing.T) {
 	activeService := serviceActivity{active: true, state: "active"}
 	inactiveService := serviceActivity{active: false, state: "inactive"}
 
-	status := classifyAtmosInterfaceStatus(net.FlagUp, []string{"100.65.0.1/32"}, activeService)
-	assertJSON(t, status, `{"schemaVersion":1,"state":"connected","interface":"atmos","addresses":["100.65.0.1/32"],"service":"atmos-agent.service","serviceActive":true,"serviceState":"active"}`)
+	status := classifyAtmosInterfaceStatus(net.FlagUp, []string{"100.65.0.1/32"}, activeService, boolPtr(true))
+	assertJSON(t, status, `{"schemaVersion":1,"state":"connected","interface":"atmos","addresses":["100.65.0.1/32"],"service":"atmos-agent.service","serviceActive":true,"serviceState":"active","loggedIn":true}`)
 
-	status = newVPNStatus("disconnected", nil, reasonInterfaceMissing, inactiveService)
-	assertJSON(t, status, `{"schemaVersion":1,"state":"disconnected","interface":"atmos","addresses":[],"reason":"interface_missing","service":"atmos-agent.service","serviceActive":false,"serviceState":"inactive"}`)
+	status = newVPNStatus("disconnected", nil, reasonInterfaceMissing, inactiveService, nil)
+	assertJSON(t, status, `{"schemaVersion":1,"state":"disconnected","interface":"atmos","addresses":[],"reason":"interface_missing","service":"atmos-agent.service","serviceActive":false,"serviceState":"inactive","loggedIn":null}`)
 }
 
 func TestFormatVPNStatusText(t *testing.T) {
@@ -96,38 +96,38 @@ func TestFormatVPNStatusText(t *testing.T) {
 	}{
 		{
 			name:   "connected",
-			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"100.65.0.1/32"}, activeService),
-			want:   "connected\tservice active, addresses 100.65.0.1/32",
+			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"100.65.0.1/32"}, activeService, boolPtr(true)),
+			want:   "connected\tservice active, logged in, addresses 100.65.0.1/32",
 		},
 		{
 			name:   "missing with active service",
-			status: newVPNStatus("disconnected", nil, reasonInterfaceMissing, activeService),
-			want:   "disconnected\tservice active, interface missing",
+			status: newVPNStatus("disconnected", nil, reasonInterfaceMissing, activeService, boolPtr(false)),
+			want:   "disconnected\tservice active, logged out, interface missing",
 		},
 		{
 			name:   "missing with inactive service",
-			status: newVPNStatus("disconnected", nil, reasonInterfaceMissing, inactiveService),
-			want:   "agent-inactive\tservice inactive, interface missing",
+			status: newVPNStatus("disconnected", nil, reasonInterfaceMissing, inactiveService, nil),
+			want:   "agent-inactive\tservice inactive, login unavailable, interface missing",
 		},
 		{
 			name:   "missing with failed service",
-			status: newVPNStatus("disconnected", nil, reasonInterfaceMissing, failedService),
-			want:   "agent-failed\tservice failed, interface missing",
+			status: newVPNStatus("disconnected", nil, reasonInterfaceMissing, failedService, nil),
+			want:   "agent-failed\tservice failed, login unavailable, interface missing",
 		},
 		{
 			name:   "down",
-			status: classifyAtmosInterfaceStatus(0, []string{"100.65.0.1/32"}, activeService),
-			want:   "disconnected\tservice active, interface down",
+			status: classifyAtmosInterfaceStatus(0, []string{"100.65.0.1/32"}, activeService, boolPtr(true)),
+			want:   "disconnected\tservice active, logged in, interface down",
 		},
 		{
 			name:   "unknown",
-			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"10.0.0.1/32"}, activeService),
-			want:   "unknown\tservice active, addresses 10.0.0.1/32",
+			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"10.0.0.1/32"}, activeService, boolPtr(true)),
+			want:   "unknown\tservice active, logged in, addresses 10.0.0.1/32",
 		},
 		{
 			name:   "unknown with inactive service",
-			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"10.0.0.1/32"}, inactiveService),
-			want:   "agent-inactive\tservice inactive, addresses 10.0.0.1/32",
+			status: classifyAtmosInterfaceStatus(net.FlagUp, []string{"10.0.0.1/32"}, inactiveService, nil),
+			want:   "agent-inactive\tservice inactive, login unavailable, addresses 10.0.0.1/32",
 		},
 	}
 
@@ -321,3 +321,7 @@ func assertJSON(t *testing.T, value any, want string) {
 }
 
 var errCommandFailed = errors.New("command failed")
+
+func boolPtr(value bool) *bool {
+	return &value
+}
